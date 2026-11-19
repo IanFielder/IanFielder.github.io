@@ -251,4 +251,226 @@ print(f"Default (0.50) -> Accuracy: {accuracy_score(y_test, y_pred_class):.3f}, 
 # >> Default (0.50) -> Accuracy: 0.854, Precision: 0.744, Recall: 0.503, F1: 0.600
 ```
 
-At the default probability threshold of `0.50`, Recall is only **0.503**—meaning nearly half of late deliveries slip through un
+At the default probability threshold of `0.50`, Recall is only **0.503**—meaning nearly half of late deliveries slip through unflagged. By sweeping thresholds from `0.00` to `1.00`, we find the probability cutoff that maximises F1-Score:
+
+```python
+thresholds = np.arange(0, 1, 0.01)
+precision_scores, recall_scores, f1_scores = [], [], []
+
+for threshold in thresholds:
+    pred_class = (y_pred_prob >= threshold).astype(int)
+    precision_scores.append(precision_score(y_test, pred_class, zero_division=0))
+    recall_scores.append(recall_score(y_test, pred_class, zero_division=0))
+    f1_scores.append(f1_score(y_test, pred_class, zero_division=0))
+
+max_f1 = max(f1_scores)
+optimal_threshold = thresholds[f1_scores.index(max_f1)]
+
+plt.figure(figsize=(10, 6))
+plt.plot(thresholds, precision_scores, label="Precision", linestyle="--")
+plt.plot(thresholds, recall_scores, label="Recall", linestyle="--")
+plt.plot(thresholds, f1_scores, label="F1-Score", linewidth=3)
+plt.title(f"Optimal Classification Threshold - Logistic Regression\nMax F1: {max_f1:.3f} (Threshold = {optimal_threshold:.2f})")
+plt.xlabel("Probability Threshold")
+plt.ylabel("Assessment Score")
+plt.legend(loc="lower left")
+plt.tight_layout()
+plt.show()
+```
+
+![Optimal Classification Threshold - Logistic Regression](/assets/images/logistic-regression-threshold.png)
+
+Lowering the classification threshold from the default `0.50` to **0.33** lifts Recall from `0.503` to roughly **0.69** and increases F1-Score to **0.654** (with Precision around **0.62**). However, linear decision boundaries still struggle to capture non-linear operational interactions—such as a chilled or frozen shipment dispatched over a weekend by a high-variance supplier—motivating tree-based models.
+
+---
+
+### 04. Decision Tree
+
+Tree-based models handle non-linear interactions natively and do not require feature scaling. Here we test a **Decision Tree Classifier** and regularise `max_depth` to prevent overfitting on the training data.
+
+```python
+from sklearn.tree import DecisionTreeClassifier
+
+# search for optimal max_depth using F1-Score
+max_depth_list = list(range(1, 15))
+f1_depth_scores = []
+
+for depth in max_depth_list:
+    clf_dt = DecisionTreeClassifier(max_depth=depth, random_state=42)
+    clf_dt.fit(X_train, y_train)
+    y_pred = clf_dt.predict(X_test)
+    f1_depth_scores.append(f1_score(y_test, y_pred))
+
+optimal_depth = max_depth_list[f1_depth_scores.index(max(f1_depth_scores))]
+print(f"Optimal Max Depth: {optimal_depth} (F1-Score: {max(f1_depth_scores):.3f})")
+# >> Optimal Max Depth: 6 (F1-Score: 0.695)
+
+# re-fit regularised Decision Tree
+clf_dt = DecisionTreeClassifier(max_depth=6, random_state=42)
+clf_dt.fit(X_train, y_train)
+y_pred_dt = clf_dt.predict(X_test)
+
+print(f"Accuracy: {accuracy_score(y_test, y_pred_dt):.3f}, "
+      f"Precision: {precision_score(y_test, y_pred_dt):.3f}, "
+      f"Recall: {recall_score(y_test, y_pred_dt):.3f}, "
+      f"F1: {f1_score(y_test, y_pred_dt):.3f}")
+# >> Accuracy: 0.889, Precision: 0.864, Recall: 0.581, F1: 0.695
+```
+
+Regularising the tree at `max_depth = 6` raises F1-Score to **0.695** and delivers the highest Precision (**0.864**) and Classification Accuracy (**0.889**) of any individual model. However, Recall sits at **0.581**, meaning over 40% of delayed purchase orders still go unflagged.
+
+---
+
+### 05. Random Forest
+
+To reduce variance and capture richer combinations of supplier reliability, cold-chain requirements, and transit distance, we next train an ensemble **Random Forest Classifier** with 500 trees.
+
+```python
+from sklearn.ensemble import RandomForestClassifier
+
+clf_rf = RandomForestClassifier(
+    n_estimators=500,
+    max_features=5,
+    random_state=42,
+    n_jobs=-1
+)
+clf_rf.fit(X_train, y_train)
+y_pred_rf = clf_rf.predict(X_test)
+
+print(f"Accuracy: {accuracy_score(y_test, y_pred_rf):.3f}, "
+      f"Precision: {precision_score(y_test, y_pred_rf):.3f}, "
+      f"Recall: {recall_score(y_test, y_pred_rf):.3f}, "
+      f"F1: {f1_score(y_test, y_pred_rf):.3f}")
+# >> Accuracy: 0.886, Precision: 0.775, Recall: 0.674, F1: 0.721
+```
+
+Averaging across 500 decorrelated trees lifts **Recall by over 9 percentage points to 0.674** while maintaining strong **Precision (0.775)**, achieving our highest overall **F1-Score of 0.721**.
+
+---
+
+### 06. LightGBM
+
+Finally, we test **LightGBM**, a gradient-boosted decision tree framework that builds trees sequentially—each new tree focusing specifically on the borderline purchase orders misclassified by prior trees.
+
+```python
+from lightgbm import LGBMClassifier
+from sklearn.inspection import permutation_importance
+
+clf_lgbm = LGBMClassifier(
+    n_estimators=300,
+    learning_rate=0.05,
+    max_depth=6,
+    num_leaves=31,
+    subsample_for_bin=50000,
+    random_state=42,
+    verbose=-1
+)
+clf_lgbm.fit(X_train, y_train)
+
+y_pred_lgbm = clf_lgbm.predict(X_test)
+y_prob_lgbm = clf_lgbm.predict_proba(X_test)[:, 1]
+
+print(f"Accuracy: {accuracy_score(y_test, y_pred_lgbm):.3f}, "
+      f"Precision: {precision_score(y_test, y_pred_lgbm):.3f}, "
+      f"Recall: {recall_score(y_test, y_pred_lgbm):.3f}, "
+      f"F1: {f1_score(y_test, y_pred_lgbm):.3f}")
+# >> Accuracy: 0.885, Precision: 0.782, Recall: 0.655, F1: 0.713
+```
+
+##### Permutation Importance (Key Operational Drivers)
+To ensure supply chain managers can trust and act on the model's alerts, we compute **Permutation Importance** on the unseen test set to measure how much F1-Score drops when each feature's values are randomly shuffled:
+
+```python
+perm_result = permutation_importance(
+    clf_lgbm, X_test, y_test, n_repeats=10, scoring="f1", random_state=42
+)
+
+perm_summary = pd.DataFrame({
+    "feature": X_test.columns,
+    "importance_mean": perm_result.importances_mean
+}).sort_values(by="importance_mean", ascending=True)
+
+plt.figure(figsize=(10, 6))
+plt.barh(perm_summary["feature"], perm_summary["importance_mean"])
+plt.title("Permutation Importance (F1 Drop) - LightGBM Supplier Delay Model")
+plt.xlabel("Mean F1-Score Decrease When Shuffled")
+plt.tight_layout()
+plt.show()
+```
+
+![Permutation Importance - Supplier Delay Model](/assets/images/permutation-importance-supplier-delay.png)
+
+The top operational drivers of inbound delays identified by Permutation Importance are:
+1. **`weekend_dispatch_flag` & Cold-Chain Zones (`Chilled` / `Frozen`):** Orders dispatched on Friday afternoons or weekends—especially temperature-controlled loads—cause the steepest F1-Score drops (~0.33 for weekend dispatch, ~0.18 for `Chilled`, and ~0.12 for `Frozen`) due to tighter carrier handoff windows and limited weekend receiving capacity.
+2. **`lead_time_std_90d`:** Suppliers with erratic historical transit times (~0.13 F1 drop) pose a substantial delay risk even when their quoted lead time appears acceptable.
+3. **`supplier_otif_30d`:** Recent 30-day On-Time In-Full execution (~0.115 F1 drop) provides a strong ongoing signal of supplier reliability.
+
+---
+
+### 07. Modelling Summary
+
+Comparing all four models on the unseen test set confirms a clear performance gain when moving from linear boundaries to tree-based ensembles:
+
+| Model | Classification Accuracy | Precision | Recall | F1-Score |
+| :--- | :---: | :---: | :---: | :---: |
+| Logistic Regression (Default = 0.50) | 0.854 | 0.744 | 0.503 | 0.600 |
+| Logistic Regression (Optimal = 0.33) | — | — | — | 0.654 |
+| Decision Tree (`max_depth = 6`) | **0.889** | **0.864** | 0.581 | 0.695 |
+| LightGBM | 0.885 | 0.782 | 0.655 | 0.713 |
+| **Random Forest (`n_estimators = 500` — Selected)** | 0.886 | 0.775 | **0.674** | **0.721** |
+
+We select **Random Forest** for deployment: it achieves the highest **F1-Score (0.721)** and **Recall (0.674)**—catching more than two-thirds of late purchase orders in advance while keeping nearly 4 out of 5 flagged alerts accurate.
+
+---
+
+### 08. Application
+
+We save our trained Random Forest classifier and fitted `OneHotEncoder` as serialised artifacts so the client's replenishment pipeline can score all open purchase orders every morning at 06:00 before carrier cutoffs.
+
+```python
+# save production artifacts
+pickle.dump(clf_rf, open("models/rf_late_delivery_model.p", "wb"))
+pickle.dump(one_hot_encoder, open("models/ohe_supplier_encoder.p", "wb"))
+
+# --- Daily Morning Scoring Pipeline ---
+open_pos = pd.read_csv("data/daily_open_purchase_orders.csv")
+po_ids = open_pos["po_id"]
+scoring_features = open_pos.drop(["po_id", "supplier_id"], axis=1)
+
+# apply saved one-hot encoder (transform only)
+encoded_cols = pd.DataFrame(
+    one_hot_encoder.transform(scoring_features[["temperature_zone"]]),
+    columns=one_hot_encoder.get_feature_names_out(["temperature_zone"])
+)
+scoring_ready = pd.concat(
+    [scoring_features.drop(["temperature_zone"], axis=1).reset_index(drop=True), encoded_cols],
+    axis=1
+)
+
+# generate late-delivery probabilities and operational action tiers
+open_pos["late_delivery_prob"] = clf_rf.predict_proba(scoring_ready)[:, 1]
+open_pos["risk_tier"] = np.select(
+    [
+        open_pos["late_delivery_prob"] >= 0.65,
+        open_pos["late_delivery_prob"] >= 0.40
+    ],
+    [
+        "High Risk - Expedite / Split PO",
+        "Medium Risk - Increase Store Buffer"
+    ],
+    default="Low Risk - Standard Replenishment"
+)
+```
+
+Rather than reviewing hundreds of open POs manually, inventory controllers receive a prioritised exception queue:
+* **High Risk (`prob >= 0.65`):** Planners contact the carrier to confirm slot booking or split urgent fresh-produce volume to a secondary regional supplier.
+* **Medium Risk (`0.40 <= prob < 0.65`):** Automated ERP parameters temporarily add +1 day of safety stock buffer at downstream stores.
+* **Low Risk (`prob < 0.40`):** Processed via standard automated replenishment without manual intervention.
+
+---
+
+### 09. Growth & Next Steps
+
+* **External Disruption Signals:** Enriching the feature set with live weather warnings, port dwell times, and major motorway incident feeds would capture sudden network shocks that historical supplier OTIF metrics cannot foresee.
+* **Cost-Optimised Decision Thresholds:** Partnering with finance and commercial teams to assign exact pound-sterling penalties to stockouts versus expediting fees would allow us to tune probability cutoffs per product category (e.g., stricter Recall thresholds for short-life chilled berries than for tinned goods).
+* **Delay Duration Estimation:** Pairing this binary classifier with a regression or survival model to estimate *how many hours late* a flagged PO will arrive would help warehouse managers dynamically reschedule inbound receiving dock labour.
