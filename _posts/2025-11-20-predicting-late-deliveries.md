@@ -278,7 +278,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-![Optimal Classification Threshold - Logistic Regression](/assets/images/logistic-regression-threshold.png)
+![Optimal Classification Threshold - Logistic Regression](/img/posts/logistic-regression-threshold.png)
 
 Lowering the classification threshold from the default `0.50` to **0.33** lifts Recall from `0.503` to roughly **0.69** and increases F1-Score to **0.654** (with Precision around **0.62**). However, linear decision boundaries still struggle to capture non-linear operational interactions—such as a chilled or frozen shipment dispatched over a weekend by a high-variance supplier—motivating tree-based models.
 
