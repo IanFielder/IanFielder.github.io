@@ -398,7 +398,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-![Permutation Importance - Supplier Delay Model](/assets/images/permutation-importance-supplier-delay.png)
+![Permutation Importance - Supplier Delay Model](/img/posts/permutation-importance-supplier-delay.png)
 
 The top operational drivers of inbound delays identified by Permutation Importance are:
 1. **`weekend_dispatch_flag` & Cold-Chain Zones (`Chilled` / `Frozen`):** Orders dispatched on Friday afternoons or weekends—especially temperature-controlled loads—cause the steepest F1-Score drops (~0.33 for weekend dispatch, ~0.18 for `Chilled`, and ~0.12 for `Frozen`) due to tighter carrier handoff windows and limited weekend receiving capacity.
