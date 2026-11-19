@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "Predicting Late Supplier Deliveries Using Machine Learning"
-date: 2026-11-19
+image: "/posts/delivery-delay-title.png"
 tags: [Supply Chain, Machine Learning, Classification, Python]
 read_time: "14 minute read"
 excerpt: "Our client, a grocery retailer, wants to identify high-risk purchase orders before dispatch to prevent fresh-category stockouts and reduce emergency freight costs."
